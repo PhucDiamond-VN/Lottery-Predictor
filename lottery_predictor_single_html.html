@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🔮 Lottery Predictor — Single HTML</title>
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- TensorFlow.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+  <style>
+    /* Simple scrollbar for overflow tables */
+    .scroll-slim::-webkit-scrollbar{height:8px;width:8px}
+    .scroll-slim::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px}
+  </style>
+</head>
+<body class="bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6 grid gap-6">
+    <h1 class="text-3xl font-bold">🔮 Lottery Predictor — Single HTML</h1>
+
+    <!-- Config Panel -->
+    <section class="bg-white rounded-2xl shadow p-4 grid md:grid-cols-3 gap-4">
+      <div>
+        <label class="text-sm">Số tối đa</label>
+        <input id="maxNumber" type="number" class="mt-1 w-full border rounded-lg px-3 py-2" value="45" />
+      </div>
+      <div>
+        <label class="text-sm">Số lượng mỗi kỳ</label>
+        <input id="countPerDraw" type="number" class="mt-1 w-full border rounded-lg px-3 py-2" value="6" />
+      </div>
+      <div>
+        <label class="text-sm">ML weight: <span id="mlwVal">3</span></label>
+        <input id="mlWeight" type="range" min="0" max="10" step="0.5" value="3" class="mt-2 w-full" />
+      </div>
+    </section>
+
+    <!-- Data Entry -->
+    <section class="bg-white rounded-2xl shadow p-4 grid md:grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm">Thêm một kỳ (vd: 1 5 9 12 27 31)</label>
+        <div class="mt-2 flex gap-2">
+          <input id="singleLine" class="flex-1 border rounded-lg px-3 py-2" placeholder="1 5 9 12 27 31" />
+          <button id="btnAdd" class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Thêm</button>
+        </div>
+      </div>
+      <div>
+        <label class="text-sm">Dán nhiều dòng</label>
+        <textarea id="bulkText" rows="5" class="mt-2 w-full border rounded-lg px-3 py-2" placeholder="2 6 10 14 22 41&#10;1 3 7 9 18 45"></textarea>
+        <div class="mt-2 flex gap-2">
+          <button id="btnBulk" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Nhập nhiều dòng</button>
+          <button id="btnClear" class="px-4 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700">Xóa tất cả</button>
+          <button id="btnTrain" class="ml-auto px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Huấn luyện ML</button>
+        </div>
+        <div id="trainState" class="mt-2 text-sm text-slate-600"></div>
+      </div>
+    </section>
+
+    <!-- Quick Stats -->
+    <div class="flex items-center gap-3 text-sm text-slate-600">
+      <span id="drawCount" class="px-2 py-1 bg-white rounded-lg shadow">Draws: 0</span>
+      <span class="px-2 py-1 bg-white rounded-lg shadow">Lưu ý: công cụ hỗ trợ phân tích & trực quan hoá, không đảm bảo kết quả.</span>
+    </div>
+
+    <!-- Tabs -->
+    <section id="tabs" class="grid gap-4">
+      <div class="flex flex-wrap gap-2">
+        <button data-tab="summary" class="tab-btn px-4 py-2 rounded-xl bg-white shadow font-medium">Tổng hợp</button>
+        <button data-tab="methods" class="tab-btn px-4 py-2 rounded-xl bg-white shadow">Theo phương pháp</button>
+        <button data-tab="ml" class="tab-btn px-4 py-2 rounded-xl bg-white shadow">ML Probabilities</button>
+        <button data-tab="pairs" class="tab-btn px-4 py-2 rounded-xl bg-white shadow">Cặp số</button>
+      </div>
+
+      <div id="tab-summary" class="bg-white rounded-2xl shadow p-4">
+        <h2 class="text-xl font-semibold">🏆 Kết quả Ensemble</h2>
+        <div id="summaryTop" class="mt-2 text-lg font-semibold"></div>
+        <div class="mt-3 overflow-auto scroll-slim">
+          <table class="min-w-full text-sm">
+            <thead><tr class="text-left"><th class="p-2">#</th><th class="p-2">Số</th><th class="p-2">Điểm</th></tr></thead>
+            <tbody id="rankingBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-methods" class="bg-white rounded-2xl shadow p-4 hidden">
+        <h2 class="text-xl font-semibold mb-2">Dự đoán theo từng phương pháp</h2>
+        <div id="methodsGrid" class="grid md:grid-cols-2 gap-3"></div>
+      </div>
+
+      <div id="tab-ml" class="bg-white rounded-2xl shadow p-4 hidden">
+        <h2 class="text-xl font-semibold">🧠 ML — Xác suất</h2>
+        <div class="mt-2 text-sm text-slate-600" id="mlNote">Huấn luyện ML sau khi nhập ≥ 20 mẫu.</div>
+        <div class="mt-3 w-full overflow-x-auto">
+          <svg id="mlChart" height="280" class="w-full"></svg>
+        </div>
+      </div>
+
+      <div id="tab-pairs" class="bg-white rounded-2xl shadow p-4 hidden">
+        <h2 class="text-xl font-semibold mb-2">🔗 Cặp số xuất hiện thường xuyên</h2>
+        <div class="overflow-auto scroll-slim">
+          <table class="min-w-full text-sm">
+            <thead><tr class="text-left"><th class="p-2">Cặp</th><th class="p-2">Số lần</th></tr></thead>
+            <tbody id="pairsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // ======= Utilities =======
+    const $ = (id) => document.getElementById(id);
+    const rng = (n) => Array.from({length:n}, (_,i)=>i);
+    const sum = (a)=>a.reduce((x,y)=>x+y,0);
+    const mean = (a)=>a.length? sum(a)/a.length : 0;
+    const std = (a)=>{ if(a.length<=1) return 0; const m=mean(a); return Math.sqrt(mean(a.map(x=> (x-m)**2))); };
+    const uniq = (arr)=>[...new Set(arr)];
+
+    function parseLine(line){
+      return line.trim().split(/\s+/).map(x=>parseInt(x,10)).filter(Number.isFinite);
+    }
+    function parseBulk(txt){
+      return txt.split(/\n|\r/).map(parseLine).filter(r=>r.length>0);
+    }
+    function slidingWindow(draws,w){ return draws.length>w? draws.slice(-w) : draws; }
+
+    // ======= Heuristic methods =======
+    function getCounter(draws){
+      const m=new Map(); draws.flat().forEach(n=> m.set(n,(m.get(n)||0)+1)); return m;
+    }
+    function topK(map,k){ return [...map.entries()].sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,k).map(x=>x[0]); }
+    function bottomK(map,k){ return [...map.entries()].sort((a,b)=>a[1]-b[1]||a[0]-b[0]).slice(0,k).map(x=>x[0]); }
+
+    function getHot(draws,k){ return topK(getCounter(draws),k); }
+    function getCold(draws,k){ return bottomK(getCounter(draws),k); }
+    function getCycle(draws,maxNumber,k){
+      const lastSeen=new Map(); draws.forEach((d,i)=> d.forEach(n=> lastSeen.set(n,i)));
+      const T=draws.length;
+      const gaps=rng(maxNumber).map(i=>{const n=i+1; const ls= lastSeen.has(n)? lastSeen.get(n): -1; const g= ls>=0? T-ls : T+1; return [n,g];});
+      return gaps.sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,k).map(x=>x[0]);
+    }
+    function getEvenOdd(draws,maxNumber,k){
+      const flat=draws.flat(); const evenRatio=flat.length? flat.filter(x=>x%2===0).length/flat.length : 0.5;
+      const te=Math.round(evenRatio*k); const ev=rng(maxNumber).map(i=>i+1).filter(x=>x%2===0);
+      const od=rng(maxNumber).map(i=>i+1).filter(x=>x%2===1); return [...ev.slice(0,te), ...od.slice(0,k-te)];
+    }
+    function getHighLow(draws,maxNumber,k){
+      const flat=draws.flat(); const half=Math.floor(maxNumber/2);
+      const lowRatio=flat.length? flat.filter(x=>x<=half).length/flat.length : 0.5; const tl=Math.round(lowRatio*k);
+      const lows=rng(half).map(i=>i+1); const highs=rng(maxNumber-half).map(i=>i+1+half);
+      return [...lows.slice(0,tl), ...highs.slice(0,k-tl)];
+    }
+    function getModulo(draws,maxNumber,k,mod=3){
+      const flat=draws.flat(); if(!flat.length) return rng(k).map(i=>i+1);
+      const mc=new Map(); flat.forEach(x=> mc.set(x%mod,(mc.get(x%mod)||0)+1));
+      const topMod=[...mc.entries()].sort((a,b)=>b[1]-a[1])[0][0];
+      return rng(maxNumber).map(i=>i+1).filter(x=>x%mod===topMod).slice(0,k);
+    }
+    function getLastDigit(draws,maxNumber,k){
+      const flat=draws.flat(); if(!flat.length) return rng(k).map(i=>i+1);
+      const dc=new Map(); flat.forEach(x=> dc.set(x%10,(dc.get(x%10)||0)+1));
+      const topDigit=[...dc.entries()].sort((a,b)=>b[1]-a[1])[0][0];
+      return rng(maxNumber).map(i=>i+1).filter(x=>x%10===topDigit).slice(0,k);
+    }
+    function getGap(draws,maxNumber,k){
+      const last=new Map(); const gaps=new Map();
+      draws.forEach((d,i)=> d.forEach(n=>{ if(last.has(n)) gaps.set(n,i-last.get(n)); last.set(n,i); }));
+      if(gaps.size===0) return getCycle(draws,maxNumber,k);
+      return [...gaps.entries()].sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,k).map(x=>x[0]);
+    }
+    function getCombined(draws,maxNumber,k){
+      const cnt=getCounter(draws); const hot=topK(cnt,k*2); const cyc=getCycle(draws,maxNumber,k*2); const gap=getGap(draws,maxNumber,k*2);
+      const score=new Map(); const add=(arr,w=1)=>arr.forEach(n=> score.set(n,(score.get(n)||0)+w));
+      add(hot,1); add(cyc,1); add(gap,1);
+      return [...score.entries()].sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,k).map(x=>x[0]);
+    }
+    function frequentPairs(draws,topN=10){
+      const pc=new Map(); draws.forEach(d=>{ const s=[...d].sort((a,b)=>a-b); for(let i=0;i<s.length;i++){ for(let j=i+1;j<s.length;j++){ const key=`${s[i]}_${s[j]}`; pc.set(key,(pc.get(key)||0)+1); } } });
+      return [...pc.entries()].sort((a,b)=>b[1]-a[1]).slice(0,topN).map(([k,v])=>({pair:k.replace("_",", "),count:v}));
+    }
+
+    // ======= Feature engineering & dataset =======
+    function summarizeDraw(draw,maxNumber){
+      const k=draw.length; const arr=[...draw].sort((a,b)=>a-b); const half=Math.floor(maxNumber/2);
+      const evenRatio=k? arr.filter(x=>x%2===0).length/k : 0; const highRatio=k? arr.filter(x=>x>half).length/k : 0;
+      const gaps=[]; for(let i=1;i<arr.length;i++) gaps.push(arr[i]-arr[i-1]);
+      const mod3=[0,0,0]; arr.forEach(x=> mod3[x%3]+=1);
+      const digits=new Map(); arr.forEach(x=> digits.set(x%10,(digits.get(x%10)||0)+1));
+      const topShare = k? Math.max(...digits.values())/k : 0; const uniqDigits = digits.size;
+      return [ sum(arr), mean(arr), std(arr), arr[0]||0, arr[arr.length-1]||0, evenRatio, highRatio, mean(gaps)||0, (gaps.length>1? std(gaps):0)||0, ...(mod3.map(c=>k? c/k:0)), topShare, uniqDigits ];
+    }
+    function buildDataset(draws,maxNumber,window=200){
+      if(draws.length<2) return {X:[], y:[]};
+      const X=[], y=[]; for(let i=0;i<draws.length-1;i++){
+        const start=Math.max(0,i-window+1); const hist=draws.slice(start,i+1);
+        const featsHist=hist.map(d=> summarizeDraw(d,maxNumber));
+        const featMean=featsHist[0].map((_,j)=> mean(featsHist.map(r=> r[j])));
+        const featLast=summarizeDraw(draws[i],maxNumber);
+        X.push([...featMean,...featLast]); draws[i+1].forEach(n=> y.push(n));
+      } return {X,y};
+    }
+
+    // ======= TF.js model =======
+    let tfModel=null;
+    async function trainTfModel(draws,maxNumber,setState){
+      const {X,y}=buildDataset(draws,maxNumber);
+      if(X.length<20){ setState && setState("Cần ≥ 20 mẫu để huấn luyện."); return null; }
+      const xTensor=tf.tensor2d(X);
+      const yIdx=tf.tensor1d(y.map(v=>v-1),"int32");
+      const yOne=tf.oneHot(yIdx,maxNumber);
+      tfModel=tf.sequential();
+      tfModel.add(tf.layers.dense({inputShape:[xTensor.shape[1]], units:64, activation:'relu'}));
+      tfModel.add(tf.layers.dropout({rate:0.15}));
+      tfModel.add(tf.layers.dense({units:64, activation:'relu'}));
+      tfModel.add(tf.layers.dense({units:maxNumber, activation:'softmax'}));
+      tfModel.compile({optimizer: tf.train.adam(0.01), loss:'categoricalCrossentropy'});
+      setState && setState('Đang huấn luyện…');
+      await tfModel.fit(xTensor,yOne,{epochs:40,batchSize:32,verbose:0,callbacks:{ onEpochEnd:(e,l)=> setState && setState(`Epoch ${e+1}/40 - loss ${l.loss.toFixed(4)}`)}});
+      setState && setState('Huấn luyện xong');
+      xTensor.dispose(); yIdx.dispose(); yOne.dispose();
+      return tfModel;
+    }
+    function predictTfProbs(model,draws,maxNumber){
+      if(!model) return Array(maxNumber).fill(0);
+      const {X}=buildDataset(draws,maxNumber); if(!X.length) return Array(maxNumber).fill(0);
+      const x=tf.tensor2d([X[X.length-1]]); const p=model.predict(x); const arr=Array.from(p.dataSync()); x.dispose(); p.dispose();
+      const s=arr.reduce((a,b)=>a+b,0)||1; return arr.map(v=>v/s);
+    }
+
+    // ======= Ensemble =======
+    function ensemble(draws,maxNumber,countPerDraw,mlWeight){
+      const windowed=slidingWindow(draws,200);
+      const methods={
+        Hot: getHot(windowed,countPerDraw),
+        Cold: getCold(windowed,countPerDraw),
+        Cycle: getCycle(windowed,maxNumber,countPerDraw),
+        EvenOdd: getEvenOdd(windowed,maxNumber,countPerDraw),
+        HighLow: getHighLow(windowed,maxNumber,countPerDraw),
+        Modulo: getModulo(windowed,maxNumber,countPerDraw,3),
+        LastDigit: getLastDigit(windowed,maxNumber,countPerDraw),
+        Gap: getGap(windowed,maxNumber,countPerDraw),
+        Combined: getCombined(windowed,maxNumber,countPerDraw),
+      };
+      const votes=new Map();
+      Object.values(methods).forEach(arr=> (arr||[]).forEach(n=> votes.set(n,(votes.get(n)||0)+1)));
+      const mlProbs=predictTfProbs(tfModel,windowed,maxNumber);
+      mlProbs.forEach((p,idx)=>{ const n=idx+1; votes.set(n,(votes.get(n)||0)+ mlWeight*p); });
+      const ranking=[...votes.entries()].sort((a,b)=> b[1]-a[1] || a[0]-b[0]);
+      const finalTop=ranking.slice(0,countPerDraw).map(x=>x[0]).sort((a,b)=>a-b);
+      return {methods, ranking, finalTop, mlProbs};
+    }
+
+    // ======= UI state & events =======
+    const state={ draws: [] };
+
+    function refresh(){
+      const maxNumber=parseInt($("maxNumber").value||"0",10);
+      const countPerDraw=parseInt($("countPerDraw").value||"0",10);
+      const mlWeight=parseFloat($("mlWeight").value||"0");
+      $("mlwVal").textContent=mlWeight;
+      $("drawCount").textContent=`Draws: ${state.draws.length}`;
+
+      if(state.draws.length===0){
+        // clear views
+        $("summaryTop").textContent="";
+        $("rankingBody").innerHTML="";
+        $("methodsGrid").innerHTML="";
+        $("pairsBody").innerHTML="";
+        drawMLChart([]); $("mlNote").classList.remove('hidden');
+        return;
+      }
+
+      const {methods, ranking, finalTop, mlProbs}=ensemble(state.draws,maxNumber,countPerDraw,mlWeight);
+
+      // Summary
+      $("summaryTop").textContent = `Top ${countPerDraw}: ${finalTop.join(", ")}`;
+      const topN=Math.min(30, maxNumber);
+      $("rankingBody").innerHTML = ranking.slice(0,topN).map(([n,sc],i)=>`<tr class="border-t"><td class="p-2">${i+1}</td><td class="p-2 font-medium">${n}</td><td class="p-2">${sc.toFixed(3)}</td></tr>`).join("");
+
+      // Methods
+      $("methodsGrid").innerHTML = Object.entries(methods).map(([name,arr])=>
+        `<div class="bg-slate-50 rounded-xl p-3 border"><div class="font-medium mb-1">${name}</div><div class="text-sm">${(arr||[]).slice().sort((a,b)=>a-b).join(", ")||"(trống)"}</div></div>`
+      ).join("");
+
+      // Pairs
+      const pairs = frequentPairs(state.draws,10);
+      $("pairsBody").innerHTML = pairs.map(p=> `<tr class="border-t"><td class="p-2">${p.pair}</td><td class="p-2">${p.count}</td></tr>`).join("");
+
+      // ML chart
+      drawMLChart(mlProbs);
+      $("mlNote").classList.toggle('hidden', !!tfModel);
+    }
+
+    function drawMLChart(probs){
+      const svg=$("mlChart"); const W=svg.clientWidth||800, H=280; svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML='';
+      if(!probs || probs.length===0){
+        svg.innerHTML = `<text x="16" y="40" class="fill-slate-500 text-sm">Chưa có mô hình ML hoặc chưa huấn luyện.</text>`;
+        return;
+      }
+      const maxProb = Math.max(...probs, 0.0001); const pad=24; const chartH=H-2*pad; const chartW=W-2*pad;
+      const barW = Math.max(2, chartW / probs.length - 2);
+      // axes
+      svg.innerHTML += `<line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H-pad}" stroke="#cbd5e1"/>`;
+      svg.innerHTML += `<line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="#cbd5e1"/>`;
+      // bars
+      probs.forEach((p,i)=>{
+        const h = (p/maxProb) * (chartH-10);
+        const x = pad + i*(barW+2);
+        const y = H - pad - h;
+        svg.innerHTML += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#60a5fa" />`;
+        if (probs.length <= 60 || (i%5===0)) {
+          svg.innerHTML += `<text x="${x+barW/2}" y="${H-pad+12}" text-anchor="middle" class="fill-slate-500" font-size="9">${i+1}</text>`;
+        }
+      });
+    }
+
+    // ======= Events =======
+    $("mlWeight").addEventListener('input', refresh);
+    $("maxNumber").addEventListener('change', refresh);
+    $("countPerDraw").addEventListener('change', refresh);
+
+    $("btnAdd").addEventListener('click', ()=>{
+      const maxNumber=parseInt($("maxNumber").value||"0",10);
+      const countPerDraw=parseInt($("countPerDraw").value||"0",10);
+      const row=parseLine($("singleLine").value);
+      if(row.length!==countPerDraw) return alert(`Cần đúng ${countPerDraw} số.`);
+      if(row.some(n=> n<1||n>maxNumber)) return alert(`Mỗi số phải trong 1..${maxNumber}`);
+      if(uniq(row).length!==row.length) return alert("Các số trong một kỳ không được trùng.");
+      state.draws.push(row); $("singleLine").value=''; refresh();
+    });
+
+    $("btnBulk").addEventListener('click', ()=>{
+      const maxNumber=parseInt($("maxNumber").value||"0",10);
+      const countPerDraw=parseInt($("countPerDraw").value||"0",10);
+      const rows=parseBulk($("bulkText").value);
+      const valid=rows.filter(r=> r.length===countPerDraw && r.every(n=>n>=1&&n<=maxNumber) && uniq(r).length===r.length);
+      if(!valid.length) return alert("Không có dòng hợp lệ.");
+      state.draws.push(...valid); $("bulkText").value=''; refresh();
+    });
+
+    $("btnClear").addEventListener('click', ()=>{ state.draws=[]; tfModel=null; $("trainState").textContent=''; refresh(); });
+
+    $("btnTrain").addEventListener('click', async ()=>{
+      const maxNumber=parseInt($("maxNumber").value||"0",10);
+      if(state.draws.length<2){ $("trainState").textContent='Cần thêm dữ liệu trước.'; return; }
+      await trainTfModel(state.draws,maxNumber,(t)=> $("trainState").textContent=t||'');
+      refresh();
+    });
+
+    // Tabs
+    document.querySelectorAll('.tab-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const val=btn.getAttribute('data-tab');
+        document.querySelectorAll('#tabs [id^=tab-]').forEach(p=> p.classList.add('hidden'));
+        document.getElementById('tab-'+val).classList.remove('hidden');
+        document.querySelectorAll('.tab-btn').forEach(b=> b.classList.remove('font-medium'));
+        btn.classList.add('font-medium');
+      });
+    });
+
+    // Initial render
+    refresh();
+  </script>
+</body>
+</html>
